@@ -1,0 +1,455 @@
+{
+  "Comment": "Self-Optimizing Agentic Mesh — Orchestrates task routing through broker, worker agents, verification, and self-correction",
+  "StartAt": "GuardrailCheck",
+  "States": {
+    "GuardrailCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${GuardrailFunctionArn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.guardrail_result",
+      "ResultSelector": {
+        "safe.$": "$.Payload.safe",
+        "sanitized_input.$": "$.Payload.sanitized_input",
+        "violations.$": "$.Payload.violations"
+      },
+      "Next": "CheckGuardrailResult",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TaskFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "CheckGuardrailResult": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.guardrail_result.safe",
+          "BooleanEquals": false,
+          "Next": "TaskBlocked"
+        }
+      ],
+      "Default": "BrokerAgent"
+    },
+
+    "TaskBlocked": {
+      "Type": "Pass",
+      "Result": {
+        "status": "BLOCKED",
+        "reason": "Task was blocked by guardrails due to policy violations."
+      },
+      "ResultPath": "$.final_result",
+      "Next": "SaveResults"
+    },
+
+    "BrokerAgent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${BrokerFunctionArn}",
+        "Payload": {
+          "task_id.$": "$.task_id",
+          "task.$": "$.guardrail_result.sanitized_input",
+          "original_task.$": "$.task",
+          "type_hint.$": "$.type_hint"
+        }
+      },
+      "ResultPath": "$.broker_result",
+      "ResultSelector": {
+        "route.$": "$.Payload.route",
+        "cache_hit.$": "$.Payload.cache_hit",
+        "predicted_complexity.$": "$.Payload.predicted_complexity",
+        "cached_answer.$": "$.Payload.cached_answer"
+      },
+      "Next": "CheckCacheHit",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TaskFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "CheckCacheHit": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "And": [
+            {
+              "Variable": "$.broker_result.cache_hit",
+              "BooleanEquals": true
+            },
+            {
+              "Variable": "$.broker_result.cached_answer",
+              "IsPresent": true
+            }
+          ],
+          "Next": "UseCachedResult"
+        }
+      ],
+      "Default": "RouteToWorker"
+    },
+
+    "UseCachedResult": {
+      "Type": "Pass",
+      "Parameters": {
+        "task_id.$": "$.task_id",
+        "task.$": "$.task",
+        "type_hint.$": "$.type_hint",
+        "guardrail_result.$": "$.guardrail_result",
+        "broker_result.$": "$.broker_result",
+        "worker_result": {
+          "agent": "cache",
+          "answer.$": "$.broker_result.cached_answer",
+          "model": "cached",
+          "latency_ms": 0,
+          "cost_estimate": 0,
+          "from_cache": true
+        }
+      },
+      "Next": "VerificationAgent"
+    },
+
+    "RouteToWorker": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.broker_result.route",
+          "StringEquals": "coder",
+          "Next": "WorkerCoder"
+        },
+        {
+          "Variable": "$.broker_result.route",
+          "StringEquals": "researcher",
+          "Next": "WorkerResearcher"
+        },
+        {
+          "Variable": "$.broker_result.route",
+          "StringEquals": "summarizer",
+          "Next": "WorkerSummarizer"
+        }
+      ],
+      "Default": "WorkerResearcher"
+    },
+
+    "WorkerCoder": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${WorkerCoderFunctionArn}",
+        "Payload": {
+          "task_id.$": "$.task_id",
+          "task.$": "$.guardrail_result.sanitized_input",
+          "complexity.$": "$.broker_result.predicted_complexity"
+        }
+      },
+      "ResultPath": "$.worker_result",
+      "ResultSelector": {
+        "agent.$": "$.Payload.agent",
+        "answer.$": "$.Payload.answer",
+        "model.$": "$.Payload.model",
+        "latency_ms.$": "$.Payload.latency_ms",
+        "token_usage.$": "$.Payload.token_usage",
+        "cost_estimate.$": "$.Payload.cost_estimate"
+      },
+      "Next": "VerificationAgent",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TaskFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "WorkerResearcher": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${WorkerResearcherFunctionArn}",
+        "Payload": {
+          "task_id.$": "$.task_id",
+          "task.$": "$.guardrail_result.sanitized_input",
+          "complexity.$": "$.broker_result.predicted_complexity"
+        }
+      },
+      "ResultPath": "$.worker_result",
+      "ResultSelector": {
+        "agent.$": "$.Payload.agent",
+        "answer.$": "$.Payload.answer",
+        "model.$": "$.Payload.model",
+        "latency_ms.$": "$.Payload.latency_ms",
+        "token_usage.$": "$.Payload.token_usage",
+        "cost_estimate.$": "$.Payload.cost_estimate"
+      },
+      "Next": "VerificationAgent",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TaskFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "WorkerSummarizer": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${WorkerSummarizerFunctionArn}",
+        "Payload": {
+          "task_id.$": "$.task_id",
+          "task.$": "$.guardrail_result.sanitized_input",
+          "complexity.$": "$.broker_result.predicted_complexity"
+        }
+      },
+      "ResultPath": "$.worker_result",
+      "ResultSelector": {
+        "agent.$": "$.Payload.agent",
+        "answer.$": "$.Payload.answer",
+        "model.$": "$.Payload.model",
+        "latency_ms.$": "$.Payload.latency_ms",
+        "token_usage.$": "$.Payload.token_usage",
+        "cost_estimate.$": "$.Payload.cost_estimate"
+      },
+      "Next": "VerificationAgent",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TaskFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "VerificationAgent": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${VerificationFunctionArn}",
+        "Payload": {
+          "task_id.$": "$.task_id",
+          "original_task.$": "$.guardrail_result.sanitized_input",
+          "worker_answer.$": "$.worker_result.answer",
+          "worker_agent.$": "$.worker_result.agent",
+          "worker_cost.$": "$.worker_result.cost_estimate"
+        }
+      },
+      "ResultPath": "$.verification_result",
+      "ResultSelector": {
+        "quality_score.$": "$.Payload.quality_score",
+        "passed.$": "$.Payload.passed",
+        "feedback.$": "$.Payload.feedback",
+        "dimensions.$": "$.Payload.dimensions"
+      },
+      "Next": "CheckVerification",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "PrepareResultsAfterVerificationFailure",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "CheckVerification": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.verification_result.passed",
+          "BooleanEquals": false,
+          "Next": "SelfCorrection"
+        }
+      ],
+      "Default": "PrepareSuccessResult"
+    },
+
+    "PrepareSuccessResult": {
+      "Type": "Pass",
+      "Parameters": {
+        "task_id.$": "$.task_id",
+        "task.$": "$.task",
+        "guardrail_result.$": "$.guardrail_result",
+        "broker_result.$": "$.broker_result",
+        "worker_result.$": "$.worker_result",
+        "verification_result.$": "$.verification_result",
+        "final_result": {
+          "status": "SUCCESS",
+          "answer.$": "$.worker_result.answer",
+          "agent.$": "$.worker_result.agent",
+          "quality_score.$": "$.verification_result.quality_score",
+          "cost_estimate.$": "$.worker_result.cost_estimate",
+          "escalated": false
+        }
+      },
+      "Next": "SaveResults"
+    },
+
+    "SelfCorrection": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${SelfCorrectionFunctionArn}",
+        "Payload": {
+          "task_id.$": "$.task_id",
+          "original_task.$": "$.guardrail_result.sanitized_input",
+          "failed_answer.$": "$.worker_result.answer",
+          "failed_agent.$": "$.worker_result.agent",
+          "verification_feedback.$": "$.verification_result.feedback",
+          "quality_score.$": "$.verification_result.quality_score"
+        }
+      },
+      "ResultPath": "$.correction_result",
+      "ResultSelector": {
+        "corrected_answer.$": "$.Payload.corrected_answer",
+        "model.$": "$.Payload.model",
+        "cost_estimate.$": "$.Payload.cost_estimate",
+        "latency_ms.$": "$.Payload.latency_ms"
+      },
+      "Next": "PrepareCorrectedResult",
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 3,
+          "MaxAttempts": 2,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TaskFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "PrepareCorrectedResult": {
+      "Type": "Pass",
+      "Parameters": {
+        "task_id.$": "$.task_id",
+        "task.$": "$.task",
+        "guardrail_result.$": "$.guardrail_result",
+        "broker_result.$": "$.broker_result",
+        "worker_result.$": "$.worker_result",
+        "verification_result.$": "$.verification_result",
+        "correction_result.$": "$.correction_result",
+        "final_result": {
+          "status": "CORRECTED",
+          "answer.$": "$.correction_result.corrected_answer",
+          "agent.$": "$.worker_result.agent",
+          "quality_score.$": "$.verification_result.quality_score",
+          "cost_estimate.$": "$.correction_result.cost_estimate",
+          "escalated": true,
+          "original_agent.$": "$.worker_result.agent"
+        }
+      },
+      "Next": "SaveResults"
+    },
+
+    "PrepareResultsAfterVerificationFailure": {
+      "Type": "Pass",
+      "Parameters": {
+        "task_id.$": "$.task_id",
+        "task.$": "$.task",
+        "guardrail_result.$": "$.guardrail_result",
+        "broker_result.$": "$.broker_result",
+        "worker_result.$": "$.worker_result",
+        "final_result": {
+          "status": "VERIFICATION_SKIPPED",
+          "answer.$": "$.worker_result.answer",
+          "agent.$": "$.worker_result.agent",
+          "cost_estimate.$": "$.worker_result.cost_estimate",
+          "escalated": false
+        }
+      },
+      "Next": "SaveResults"
+    },
+
+    "SaveResults": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${SaveResultsFunctionArn}",
+        "Payload.$": "$"
+      },
+      "ResultPath": "$.save_result",
+      "End": true,
+      "Retry": [
+        {
+          "ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException"],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": ["States.ALL"],
+          "Next": "TaskFailed",
+          "ResultPath": "$.error"
+        }
+      ]
+    },
+
+    "TaskFailed": {
+      "Type": "Fail",
+      "Error": "TaskProcessingFailed",
+      "Cause": "An unrecoverable error occurred during task processing."
+    }
+  }
+}

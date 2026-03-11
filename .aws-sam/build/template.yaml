@@ -1,0 +1,558 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: 'Self-Optimizing Agentic Mesh for Heterogeneous Tasks. Multi-agent system
+  with broker-based routing, vector-cached task memory, shadow verification, and self-correction
+  loops.
+
+  '
+Globals:
+  Function:
+    Runtime: python3.10
+    Timeout: 120
+    MemorySize: 512
+    Architectures:
+    - x86_64
+    Environment:
+      Variables:
+        TASK_TABLE_NAME:
+          Ref: TaskResultsTable
+        OPENSEARCH_ENDPOINT:
+          Fn::GetAtt:
+          - TaskCacheCollection
+          - CollectionEndpoint
+        OPENSEARCH_INDEX: task-success-cache
+        LOG_LEVEL: INFO
+        POWERTOOLS_SERVICE_NAME: agentic-mesh
+        POWERTOOLS_LOG_LEVEL: INFO
+Resources:
+  AgenticMeshApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: Prod
+      Description: Agentic Mesh REST API
+      Cors:
+        AllowMethods: '''GET,POST,OPTIONS'''
+        AllowHeaders: '''Content-Type,Authorization'''
+        AllowOrigin: '''*'''
+  TaskQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: agentic-mesh-task-queue
+      VisibilityTimeout: 300
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn:
+          Fn::GetAtt:
+          - TaskDLQ
+          - Arn
+        maxReceiveCount: 3
+  TaskDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: agentic-mesh-task-dlq
+      MessageRetentionPeriod: 1209600
+  TaskResultsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: AgenticMeshTaskResults
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: task_id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: task_id
+        KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+  TaskCacheEncryptionPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: task-cache-encryption
+      Type: encryption
+      Policy:
+        Fn::Sub: "{\n  \"Rules\": [\n    {\n      \"ResourceType\": \"collection\"\
+          ,\n      \"Resource\": [\"collection/task-success-cache\"]\n    }\n  ],\n\
+          \  \"AWSOwnedKey\": true\n}\n"
+  TaskCacheNetworkPolicy:
+    Type: AWS::OpenSearchServerless::SecurityPolicy
+    Properties:
+      Name: task-cache-network
+      Type: network
+      Policy:
+        Fn::Sub: "[\n  {\n    \"Rules\": [\n      {\n        \"ResourceType\": \"\
+          collection\",\n        \"Resource\": [\"collection/task-success-cache\"\
+          ]\n      },\n      {\n        \"ResourceType\": \"dashboard\",\n       \
+          \ \"Resource\": [\"collection/task-success-cache\"]\n      }\n    ],\n \
+          \   \"AllowFromPublic\": true\n  }\n]\n"
+  TaskCacheDataAccessPolicy:
+    Type: AWS::OpenSearchServerless::AccessPolicy
+    Properties:
+      Name: task-cache-access
+      Type: data
+      Policy:
+        Fn::Sub: "[\n  {\n    \"Rules\": [\n      {\n        \"ResourceType\": \"\
+          index\",\n        \"Resource\": [\"index/task-success-cache/*\"],\n    \
+          \    \"Permission\": [\n          \"aoss:CreateIndex\",\n          \"aoss:UpdateIndex\"\
+          ,\n          \"aoss:DescribeIndex\",\n          \"aoss:ReadDocument\",\n\
+          \          \"aoss:WriteDocument\"\n        ]\n      },\n      {\n      \
+          \  \"ResourceType\": \"collection\",\n        \"Resource\": [\"collection/task-success-cache\"\
+          ],\n        \"Permission\": [\n          \"aoss:CreateCollectionItems\"\
+          ,\n          \"aoss:DescribeCollectionItems\",\n          \"aoss:UpdateCollectionItems\"\
+          \n        ]\n      }\n    ],\n    \"Principal\": [\n      \"arn:aws:iam::${AWS::AccountId}:role/AgenticMeshLambdaRole\"\
+          \n    ]\n  }\n]\n"
+  TaskCacheCollection:
+    Type: AWS::OpenSearchServerless::Collection
+    DependsOn:
+    - TaskCacheEncryptionPolicy
+    - TaskCacheNetworkPolicy
+    - TaskCacheDataAccessPolicy
+    Properties:
+      Name: task-success-cache
+      Type: VECTORSEARCH
+      Description: Vector store for task-success cache with k-NN similarity search
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AgenticMeshLambdaRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: BedrockAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - bedrock:InvokeModel
+            - bedrock:InvokeModelWithResponseStream
+            - bedrock:ApplyGuardrail
+            Resource: '*'
+      - PolicyName: DynamoDBAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            - dynamodb:Query
+            Resource:
+              Fn::GetAtt:
+              - TaskResultsTable
+              - Arn
+      - PolicyName: SQSAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - sqs:SendMessage
+            - sqs:ReceiveMessage
+            - sqs:DeleteMessage
+            - sqs:GetQueueAttributes
+            Resource:
+              Fn::GetAtt:
+              - TaskQueue
+              - Arn
+      - PolicyName: StepFunctionsAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - states:StartExecution
+            Resource:
+              Fn::Sub: arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:AgenticMeshOrchestrator
+      - PolicyName: OpenSearchAccess
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - aoss:APIAccessAll
+            Resource:
+              Fn::Sub: arn:aws:aoss:${AWS::Region}:${AWS::AccountId}:collection/*
+      - PolicyName: CloudWatchMetrics
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            Resource: '*'
+  StateMachineExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: AgenticMeshStateMachineRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: states.amazonaws.com
+          Action: sts:AssumeRole
+      Policies:
+      - PolicyName: InvokeLambda
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            Resource:
+            - Fn::Sub: arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:agentic-mesh-*
+      - PolicyName: CloudWatchLogs
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogDelivery
+            - logs:GetLogDelivery
+            - logs:UpdateLogDelivery
+            - logs:DeleteLogDelivery
+            - logs:ListLogDeliveries
+            - logs:PutResourcePolicy
+            - logs:DescribeResourcePolicies
+            - logs:DescribeLogGroups
+            Resource: '*'
+  ApiHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-api-handler
+      Handler: src/handlers/api_handler.lambda_handler
+      CodeUri: ApiHandlerFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Environment:
+        Variables:
+          QUEUE_URL:
+            Ref: TaskQueue
+          STATE_MACHINE_ARN:
+            Fn::Sub: arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:AgenticMeshOrchestrator
+      Events:
+        PostTask:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: AgenticMeshApi
+            Path: /task
+            Method: POST
+        GetTask:
+          Type: Api
+          Properties:
+            RestApiId:
+              Ref: AgenticMeshApi
+            Path: /task/{taskId}
+            Method: GET
+    Metadata:
+      SamResourceId: ApiHandlerFunction
+  OrchestratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-orchestrator
+      Handler: src/handlers/orchestrator.lambda_handler
+      CodeUri: OrchestratorFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN:
+            Fn::Sub: arn:aws:states:${AWS::Region}:${AWS::AccountId}:stateMachine:AgenticMeshOrchestrator
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue:
+              Fn::GetAtt:
+              - TaskQueue
+              - Arn
+            BatchSize: 1
+    Metadata:
+      SamResourceId: OrchestratorFunction
+  GuardrailFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-guardrail
+      Handler: src/handlers/guardrail_handler.lambda_handler
+      CodeUri: GuardrailFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 30
+    Metadata:
+      SamResourceId: GuardrailFunction
+  BrokerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-broker
+      Handler: src/handlers/broker.lambda_handler
+      CodeUri: BrokerFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 60
+    Metadata:
+      SamResourceId: BrokerFunction
+  WorkerCoderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-worker-coder
+      Handler: src/handlers/worker_coder.lambda_handler
+      CodeUri: WorkerCoderFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 120
+      MemorySize: 1024
+    Metadata:
+      SamResourceId: WorkerCoderFunction
+  WorkerResearcherFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-worker-researcher
+      Handler: src/handlers/worker_researcher.lambda_handler
+      CodeUri: WorkerResearcherFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 120
+    Metadata:
+      SamResourceId: WorkerResearcherFunction
+  WorkerSummarizerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-worker-summarizer
+      Handler: src/handlers/worker_summarizer.lambda_handler
+      CodeUri: WorkerSummarizerFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 60
+    Metadata:
+      SamResourceId: WorkerSummarizerFunction
+  VerificationFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-verification
+      Handler: src/handlers/verification_agent.lambda_handler
+      CodeUri: VerificationFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 90
+    Metadata:
+      SamResourceId: VerificationFunction
+  SelfCorrectionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-self-correction
+      Handler: src/handlers/self_correction.lambda_handler
+      CodeUri: SelfCorrectionFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 120
+      MemorySize: 1024
+    Metadata:
+      SamResourceId: SelfCorrectionFunction
+  SaveResultsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: agentic-mesh-save-results
+      Handler: src/handlers/save_results.lambda_handler
+      CodeUri: SaveResultsFunction
+      Role:
+        Fn::GetAtt:
+        - LambdaExecutionRole
+        - Arn
+      Timeout: 60
+    Metadata:
+      SamResourceId: SaveResultsFunction
+  AgenticMeshStateMachine:
+    Type: AWS::Serverless::StateMachine
+    Properties:
+      Name: AgenticMeshOrchestrator
+      DefinitionUri: ..\..\src\state_machine\definition.asl.json
+      DefinitionSubstitutions:
+        GuardrailFunctionArn:
+          Fn::GetAtt:
+          - GuardrailFunction
+          - Arn
+        BrokerFunctionArn:
+          Fn::GetAtt:
+          - BrokerFunction
+          - Arn
+        WorkerCoderFunctionArn:
+          Fn::GetAtt:
+          - WorkerCoderFunction
+          - Arn
+        WorkerResearcherFunctionArn:
+          Fn::GetAtt:
+          - WorkerResearcherFunction
+          - Arn
+        WorkerSummarizerFunctionArn:
+          Fn::GetAtt:
+          - WorkerSummarizerFunction
+          - Arn
+        VerificationFunctionArn:
+          Fn::GetAtt:
+          - VerificationFunction
+          - Arn
+        SelfCorrectionFunctionArn:
+          Fn::GetAtt:
+          - SelfCorrectionFunction
+          - Arn
+        SaveResultsFunctionArn:
+          Fn::GetAtt:
+          - SaveResultsFunction
+          - Arn
+      Role:
+        Fn::GetAtt:
+        - StateMachineExecutionRole
+        - Arn
+      Logging:
+        Level: ALL
+        IncludeExecutionData: true
+        Destinations:
+        - CloudWatchLogsLogGroup:
+            LogGroupArn:
+              Fn::GetAtt:
+              - StateMachineLogGroup
+              - Arn
+  StateMachineLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/stepfunctions/AgenticMeshOrchestrator
+      RetentionInDays: 30
+  AgenticMeshGuardrail:
+    Type: AWS::Bedrock::Guardrail
+    Properties:
+      Name: agentic-mesh-guardrail
+      Description: Filters prompt injections and PII before reaching worker agents
+      BlockedInputMessaging: Your request was blocked due to policy violations.
+      BlockedOutputsMessaging: The response was blocked due to policy violations.
+      ContentPolicyConfig:
+        FiltersConfig:
+        - InputStrength: HIGH
+          OutputStrength: HIGH
+          Type: HATE
+        - InputStrength: HIGH
+          OutputStrength: HIGH
+          Type: INSULTS
+        - InputStrength: HIGH
+          OutputStrength: HIGH
+          Type: SEXUAL
+        - InputStrength: HIGH
+          OutputStrength: HIGH
+          Type: VIOLENCE
+        - InputStrength: HIGH
+          OutputStrength: NONE
+          Type: PROMPT_ATTACK
+      SensitiveInformationPolicyConfig:
+        PiiEntitiesConfig:
+        - Action: ANONYMIZE
+          Type: EMAIL
+        - Action: ANONYMIZE
+          Type: PHONE
+        - Action: ANONYMIZE
+          Type: US_SOCIAL_SECURITY_NUMBER
+        - Action: ANONYMIZE
+          Type: CREDIT_DEBIT_CARD_NUMBER
+  AgenticMeshDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: AgenticMeshDashboard
+      DashboardBody:
+        Fn::Sub: "{\n  \"widgets\": [\n    {\n      \"type\": \"metric\",\n      \"\
+          x\": 0, \"y\": 0, \"width\": 12, \"height\": 6,\n      \"properties\": {\n\
+          \        \"title\": \"Cost Per Task by Agent\",\n        \"metrics\": [\n\
+          \          [\"AgenticMesh\", \"CostPerTask\", \"Agent\", \"coder\", {\"\
+          stat\": \"Average\"}],\n          [\"AgenticMesh\", \"CostPerTask\", \"\
+          Agent\", \"researcher\", {\"stat\": \"Average\"}],\n          [\"AgenticMesh\"\
+          , \"CostPerTask\", \"Agent\", \"summarizer\", {\"stat\": \"Average\"}]\n\
+          \        ],\n        \"view\": \"bar\",\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"period\": 3600\n      }\n    },\n    {\n      \"type\": \"\
+          metric\",\n      \"x\": 12, \"y\": 0, \"width\": 12, \"height\": 6,\n  \
+          \    \"properties\": {\n        \"title\": \"Cache Hit Savings Over Time\"\
+          ,\n        \"metrics\": [\n          [\"AgenticMesh\", \"CostSavingFromCache\"\
+          , {\"stat\": \"Sum\"}],\n          [\"AgenticMesh\", \"CacheHitRate\", {\"\
+          stat\": \"Average\"}]\n        ],\n        \"view\": \"timeSeries\",\n \
+          \       \"region\": \"${AWS::Region}\",\n        \"period\": 3600\n    \
+          \  }\n    },\n    {\n      \"type\": \"metric\",\n      \"x\": 0, \"y\"\
+          : 6, \"width\": 8, \"height\": 6,\n      \"properties\": {\n        \"title\"\
+          : \"Routing Distribution\",\n        \"metrics\": [\n          [\"AgenticMesh\"\
+          , \"RoutingDecision\", \"Agent\", \"coder\", {\"stat\": \"SampleCount\"\
+          }],\n          [\"AgenticMesh\", \"RoutingDecision\", \"Agent\", \"researcher\"\
+          , {\"stat\": \"SampleCount\"}],\n          [\"AgenticMesh\", \"RoutingDecision\"\
+          , \"Agent\", \"summarizer\", {\"stat\": \"SampleCount\"}]\n        ],\n\
+          \        \"view\": \"pie\",\n        \"region\": \"${AWS::Region}\",\n \
+          \       \"period\": 86400\n      }\n    },\n    {\n      \"type\": \"metric\"\
+          ,\n      \"x\": 8, \"y\": 6, \"width\": 8, \"height\": 6,\n      \"properties\"\
+          : {\n        \"title\": \"Quality Scores by Agent\",\n        \"metrics\"\
+          : [\n          [\"AgenticMesh\", \"QualityScore\", \"Agent\", \"coder\"\
+          , {\"stat\": \"Average\"}],\n          [\"AgenticMesh\", \"QualityScore\"\
+          , \"Agent\", \"researcher\", {\"stat\": \"Average\"}],\n          [\"AgenticMesh\"\
+          , \"QualityScore\", \"Agent\", \"summarizer\", {\"stat\": \"Average\"}]\n\
+          \        ],\n        \"view\": \"bar\",\n        \"region\": \"${AWS::Region}\"\
+          ,\n        \"period\": 3600\n      }\n    },\n    {\n      \"type\": \"\
+          metric\",\n      \"x\": 16, \"y\": 6, \"width\": 8, \"height\": 6,\n   \
+          \   \"properties\": {\n        \"title\": \"Escalation & Verification\"\
+          ,\n        \"metrics\": [\n          [\"AgenticMesh\", \"EscalationRate\"\
+          , {\"stat\": \"Average\"}],\n          [\"AgenticMesh\", \"VerificationPassRate\"\
+          , {\"stat\": \"Average\"}]\n        ],\n        \"view\": \"timeSeries\"\
+          ,\n        \"region\": \"${AWS::Region}\",\n        \"period\": 3600\n \
+          \     }\n    },\n    {\n      \"type\": \"metric\",\n      \"x\": 0, \"\
+          y\": 12, \"width\": 24, \"height\": 6,\n      \"properties\": {\n      \
+          \  \"title\": \"Task Latency by Agent\",\n        \"metrics\": [\n     \
+          \     [\"AgenticMesh\", \"TaskLatency\", \"Agent\", \"coder\", {\"stat\"\
+          : \"Average\"}],\n          [\"AgenticMesh\", \"TaskLatency\", \"Agent\"\
+          , \"researcher\", {\"stat\": \"Average\"}],\n          [\"AgenticMesh\"\
+          , \"TaskLatency\", \"Agent\", \"summarizer\", {\"stat\": \"Average\"}],\n\
+          \          [\"AgenticMesh\", \"TaskLatency\", \"Agent\", \"self_correction\"\
+          , {\"stat\": \"Average\"}]\n        ],\n        \"view\": \"timeSeries\"\
+          ,\n        \"region\": \"${AWS::Region}\",\n        \"period\": 300\n  \
+          \    }\n    }\n  ]\n}\n"
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${AgenticMeshApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/task
+  StateMachineArn:
+    Description: Step Functions State Machine ARN
+    Value:
+      Ref: AgenticMeshStateMachine
+  TaskTableName:
+    Description: DynamoDB table for task results
+    Value:
+      Ref: TaskResultsTable
+  OpenSearchEndpoint:
+    Description: OpenSearch Serverless collection endpoint
+    Value:
+      Fn::GetAtt:
+      - TaskCacheCollection
+      - CollectionEndpoint
+  DashboardURL:
+    Description: CloudWatch Dashboard URL
+    Value:
+      Fn::Sub: https://${AWS::Region}.console.aws.amazon.com/cloudwatch/home?region=${AWS::Region}#dashboards:name=AgenticMeshDashboard

@@ -1,0 +1,16 @@
+# SAM deployment configuration for Self-Optimizing Agentic Mesh
+version = 0.1
+
+[default.deploy.parameters]
+stack_name = "agentic-mesh"
+resolve_s3 = true
+s3_prefix = "agentic-mesh"
+region = "us-east-1"
+confirm_changeset = true
+capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+disable_rollback = false
+parameter_overrides = ""
+image_repositories = []
+
+[default.global.parameters]
+region = "us-east-1"

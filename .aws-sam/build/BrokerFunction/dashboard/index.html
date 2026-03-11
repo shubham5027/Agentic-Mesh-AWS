@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Agentic Mesh — AI Task Orchestration Dashboard</title>
+    <meta name="description" content="Real-time dashboard for the Self-Optimizing Agentic Mesh. Submit tasks, monitor AI agent pipelines, and track cost/quality metrics.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <!-- Animated Background -->
+    <div class="bg-gradient"></div>
+    <div class="bg-grid"></div>
+
+    <!-- Navigation -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-brand">
+            <div class="brand-icon">
+                <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
+                    <circle cx="14" cy="14" r="12" stroke="url(#grad1)" stroke-width="2"/>
+                    <circle cx="14" cy="7" r="2.5" fill="#a78bfa"/>
+                    <circle cx="7" cy="18" r="2.5" fill="#6366f1"/>
+                    <circle cx="21" cy="18" r="2.5" fill="#818cf8"/>
+                    <line x1="14" y1="7" x2="7" y2="18" stroke="#6366f1" stroke-width="1.5" opacity="0.6"/>
+                    <line x1="14" y1="7" x2="21" y2="18" stroke="#818cf8" stroke-width="1.5" opacity="0.6"/>
+                    <line x1="7" y1="18" x2="21" y2="18" stroke="#a78bfa" stroke-width="1.5" opacity="0.6"/>
+                    <circle cx="14" cy="14" r="3" fill="url(#grad1)"/>
+                    <defs>
+                        <linearGradient id="grad1" x1="0" y1="0" x2="28" y2="28">
+                            <stop offset="0%" stop-color="#a78bfa"/>
+                            <stop offset="100%" stop-color="#6366f1"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+            </div>
+            <span class="brand-text">Agentic Mesh</span>
+            <span class="brand-badge">LIVE</span>
+        </div>
+        <div class="nav-links">
+            <a href="#submit" class="nav-link active" data-section="submit">Submit</a>
+            <a href="#pipeline" class="nav-link" data-section="pipeline">Pipeline</a>
+            <a href="#analytics" class="nav-link" data-section="analytics">Analytics</a>
+            <a href="#history" class="nav-link" data-section="history">History</a>
+        </div>
+        <div class="nav-status">
+            <div class="status-dot"></div>
+            <span>Connected</span>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+
+        <!-- Hero Stats Bar -->
+        <section class="stats-bar" id="stats-bar">
+            <div class="stat-card" id="stat-total">
+                <div class="stat-icon">📊</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="total-tasks">0</span>
+                    <span class="stat-label">Total Tasks</span>
+                </div>
+            </div>
+            <div class="stat-card" id="stat-success">
+                <div class="stat-icon">✅</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="success-rate">—</span>
+                    <span class="stat-label">Success Rate</span>
+                </div>
+            </div>
+            <div class="stat-card" id="stat-cost">
+                <div class="stat-icon">💰</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="total-cost">$0.00</span>
+                    <span class="stat-label">Total Cost</span>
+                </div>
+            </div>
+            <div class="stat-card" id="stat-latency">
+                <div class="stat-icon">⚡</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="avg-latency">—</span>
+                    <span class="stat-label">Avg Latency</span>
+                </div>
+            </div>
+            <div class="stat-card" id="stat-cache">
+                <div class="stat-icon">🧠</div>
+                <div class="stat-info">
+                    <span class="stat-value" id="cache-hits">0</span>
+                    <span class="stat-label">Cache Hits</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- Task Submission Section -->
+        <section class="section" id="submit">
+            <div class="section-header">
+                <h2>Submit Task</h2>
+                <p class="section-subtitle">Send a task to the Agentic Mesh for intelligent routing and processing</p>
+            </div>
+
+            <div class="submit-grid">
+                <!-- Chat Interface -->
+                <div class="chat-panel glass-card">
+                    <div class="chat-messages" id="chat-messages">
+                        <div class="chat-welcome">
+                            <div class="welcome-icon">🕸️</div>
+                            <h3>Welcome to the Agentic Mesh</h3>
+                            <p>Submit any task — coding, research, or summarization. The Broker Agent will automatically route it to the best specialist.</p>
+                            <div class="quick-prompts">
+                                <button class="quick-prompt" onclick="usePrompt('Write a Python function for binary search with error handling')">💻 Binary Search</button>
+                                <button class="quick-prompt" onclick="usePrompt('Explain the differences between REST and GraphQL APIs')">🔍 REST vs GraphQL</button>
+                                <button class="quick-prompt" onclick="usePrompt('Summarize the key principles of clean code architecture')">📝 Clean Code</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="chat-input-area">
+                        <div class="input-wrapper">
+                            <select id="task-type" class="type-select">
+                                <option value="auto">🤖 Auto-detect</option>
+                                <option value="coding">💻 Coding</option>
+                                <option value="research">🔍 Research</option>
+                                <option value="summarize">📝 Summarize</option>
+                            </select>
+                            <textarea id="task-input" placeholder="Describe your task..." rows="1"></textarea>
+                            <button id="submit-btn" class="submit-btn" onclick="submitTask()">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Task Info Panel -->
+                <div class="info-panel glass-card" id="info-panel">
+                    <h3 class="info-title">Task Details</h3>
+                    <div class="info-placeholder" id="info-placeholder">
+                        <div class="info-icon-large">🎯</div>
+                        <p>Submit a task to see live processing details here</p>
+                    </div>
+                    <div class="info-content hidden" id="info-content">
+                        <div class="info-row">
+                            <span class="info-label">Task ID</span>
+                            <span class="info-value mono" id="info-task-id">—</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Status</span>
+                            <span class="info-value" id="info-status">
+                                <span class="status-badge queued">QUEUED</span>
+                            </span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Agent</span>
+                            <span class="info-value" id="info-agent">—</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Model</span>
+                            <span class="info-value mono" id="info-model">—</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Quality Score</span>
+                            <span class="info-value" id="info-quality">—</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Cost</span>
+                            <span class="info-value" id="info-cost">—</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Latency</span>
+                            <span class="info-value" id="info-latency">—</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Escalated</span>
+                            <span class="info-value" id="info-escalated">—</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Cache Hit</span>
+                            <span class="info-value" id="info-cache">—</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Pipeline Visualization -->
+        <section class="section" id="pipeline">
+            <div class="section-header">
+                <h2>Pipeline Visualization</h2>
+                <p class="section-subtitle">Watch the Step Functions pipeline process your task in real-time</p>
+            </div>
+
+            <div class="pipeline-container glass-card">
+                <div class="pipeline-flow">
+                    <div class="pipeline-node" id="node-submit" data-stage="submit">
+                        <div class="node-icon">📨</div>
+                        <div class="node-label">Submit</div>
+                        <div class="node-status">Ready</div>
+                    </div>
+                    <div class="pipeline-connector" id="conn-1"></div>
+                    <div class="pipeline-node" id="node-guardrail" data-stage="guardrail">
+                        <div class="node-icon">🛡️</div>
+                        <div class="node-label">Guardrail</div>
+                        <div class="node-status">Waiting</div>
+                    </div>
+                    <div class="pipeline-connector" id="conn-2"></div>
+                    <div class="pipeline-node" id="node-broker" data-stage="broker">
+                        <div class="node-icon">🧠</div>
+                        <div class="node-label">Broker</div>
+                        <div class="node-status">Waiting</div>
+                    </div>
+                    <div class="pipeline-connector" id="conn-3"></div>
+                    <div class="pipeline-node" id="node-worker" data-stage="worker">
+                        <div class="node-icon">⚙️</div>
+                        <div class="node-label">Worker</div>
+                        <div class="node-status">Waiting</div>
+                    </div>
+                    <div class="pipeline-connector" id="conn-4"></div>
+                    <div class="pipeline-node" id="node-verify" data-stage="verify">
+                        <div class="node-icon">🔍</div>
+                        <div class="node-label">Verify</div>
+                        <div class="node-status">Waiting</div>
+                    </div>
+                    <div class="pipeline-connector" id="conn-5"></div>
+                    <div class="pipeline-node" id="node-save" data-stage="save">
+                        <div class="node-icon">💾</div>
+                        <div class="node-label">Save</div>
+                        <div class="node-status">Waiting</div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Analytics Section -->
+        <section class="section" id="analytics">
+            <div class="section-header">
+                <h2>Analytics</h2>
+                <p class="section-subtitle">Cost, quality, and performance insights across all agents</p>
+            </div>
+
+            <div class="analytics-grid">
+                <!-- Agent Performance -->
+                <div class="analytics-card glass-card">
+                    <h3 class="card-title">Agent Performance</h3>
+                    <div class="agent-bars" id="agent-bars">
+                        <div class="agent-bar-row">
+                            <div class="agent-info">
+                                <span class="agent-icon">💻</span>
+                                <span class="agent-name">Coder</span>
+                            </div>
+                            <div class="bar-track">
+                                <div class="bar-fill coder" id="bar-coder" style="width: 0%"></div>
+                            </div>
+                            <span class="bar-value" id="bar-coder-val">0</span>
+                        </div>
+                        <div class="agent-bar-row">
+                            <div class="agent-info">
+                                <span class="agent-icon">🔍</span>
+                                <span class="agent-name">Researcher</span>
+                            </div>
+                            <div class="bar-track">
+                                <div class="bar-fill researcher" id="bar-researcher" style="width: 0%"></div>
+                            </div>
+                            <span class="bar-value" id="bar-researcher-val">0</span>
+                        </div>
+                        <div class="agent-bar-row">
+                            <div class="agent-info">
+                                <span class="agent-icon">📝</span>
+                                <span class="agent-name">Summarizer</span>
+                            </div>
+                            <div class="bar-track">
+                                <div class="bar-fill summarizer" id="bar-summarizer" style="width: 0%"></div>
+                            </div>
+                            <span class="bar-value" id="bar-summarizer-val">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quality Scores -->
+                <div class="analytics-card glass-card">
+                    <h3 class="card-title">Quality Distribution</h3>
+                    <div class="quality-rings" id="quality-rings">
+                        <div class="ring-item">
+                            <div class="ring" id="ring-accuracy">
+                                <svg viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="42" class="ring-bg"/>
+                                    <circle cx="50" cy="50" r="42" class="ring-fill accuracy" stroke-dasharray="0 264"/>
+                                </svg>
+                                <span class="ring-value">—</span>
+                            </div>
+                            <span class="ring-label">Accuracy</span>
+                        </div>
+                        <div class="ring-item">
+                            <div class="ring" id="ring-completeness">
+                                <svg viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="42" class="ring-bg"/>
+                                    <circle cx="50" cy="50" r="42" class="ring-fill completeness" stroke-dasharray="0 264"/>
+                                </svg>
+                                <span class="ring-value">—</span>
+                            </div>
+                            <span class="ring-label">Complete</span>
+                        </div>
+                        <div class="ring-item">
+                            <div class="ring" id="ring-relevance">
+                                <svg viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="42" class="ring-bg"/>
+                                    <circle cx="50" cy="50" r="42" class="ring-fill relevance" stroke-dasharray="0 264"/>
+                                </svg>
+                                <span class="ring-value">—</span>
+                            </div>
+                            <span class="ring-label">Relevance</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Cost Breakdown -->
+                <div class="analytics-card glass-card">
+                    <h3 class="card-title">Cost Breakdown</h3>
+                    <div class="cost-items" id="cost-items">
+                        <div class="cost-row">
+                            <span class="cost-label">Worker Cost</span>
+                            <span class="cost-amount" id="cost-worker">$0.0000</span>
+                        </div>
+                        <div class="cost-row">
+                            <span class="cost-label">Verification Cost</span>
+                            <span class="cost-amount" id="cost-verify">$0.0000</span>
+                        </div>
+                        <div class="cost-row">
+                            <span class="cost-label">Broker Cost</span>
+                            <span class="cost-amount" id="cost-broker">$0.0000</span>
+                        </div>
+                        <div class="cost-divider"></div>
+                        <div class="cost-row total">
+                            <span class="cost-label">Total</span>
+                            <span class="cost-amount" id="cost-total-breakdown">$0.0000</span>
+                        </div>
+                        <div class="cost-row savings">
+                            <span class="cost-label">Cache Savings</span>
+                            <span class="cost-amount green" id="cost-savings">$0.0000</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Task History -->
+        <section class="section" id="history">
+            <div class="section-header">
+                <h2>Task History</h2>
+                <p class="section-subtitle">All processed tasks with their outcomes and metrics</p>
+            </div>
+
+            <div class="history-card glass-card">
+                <div class="history-controls">
+                    <div class="filter-group">
+                        <button class="filter-btn active" data-filter="all">All</button>
+                        <button class="filter-btn" data-filter="SUCCESS">✅ Success</button>
+                        <button class="filter-btn" data-filter="PROCESSING">⏳ Processing</button>
+                        <button class="filter-btn" data-filter="FAILED">❌ Failed</button>
+                    </div>
+                    <button class="clear-btn" onclick="clearHistory()">Clear</button>
+                </div>
+
+                <div class="history-table-wrapper">
+                    <table class="history-table" id="history-table">
+                        <thead>
+                            <tr>
+                                <th>Task</th>
+                                <th>Agent</th>
+                                <th>Status</th>
+                                <th>Quality</th>
+                                <th>Cost</th>
+                                <th>Latency</th>
+                                <th>Time</th>
+                            </tr>
+                        </thead>
+                        <tbody id="history-tbody">
+                            <tr class="empty-row">
+                                <td colspan="7">
+                                    <div class="empty-state">
+                                        <span class="empty-icon">📭</span>
+                                        <p>No tasks yet. Submit your first task above!</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Toast Notification Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Task Detail Modal -->
+    <div class="modal-overlay hidden" id="modal-overlay" onclick="closeModal()">
+        <div class="modal glass-card" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h3>Task Result</h3>
+                <button class="modal-close" onclick="closeModal()">✕</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- filled dynamically -->
+            </div>
+        </div>
+    </div>
+
+    <script src="js/app.js"></script>
+</body>
+</html>

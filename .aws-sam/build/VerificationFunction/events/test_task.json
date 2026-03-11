@@ -1,0 +1,9 @@
+{
+  "body": "{\"task\": \"Write a Python function that implements binary search on a sorted list.\", \"type_hint\": \"coding\"}",
+  "httpMethod": "POST",
+  "path": "/task",
+  "requestContext": {
+    "requestId": "test-request-001",
+    "stage": "Prod"
+  }
+}
