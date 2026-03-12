@@ -386,6 +386,12 @@ function updateInfoPanel(result) {
         document.getElementById("info-cache").textContent = hit ? "✅ Yes" : "No";
     }
 
+    if (result.verification_feedback) {
+        document.getElementById("info-notes").textContent = result.verification_feedback;
+    } else {
+        document.getElementById("info-notes").textContent = "No specific notes provided by the Judge.";
+    }
+
     // Update analytics
     if (result.status === "SUCCESS" || result.answer) {
         updateAnalytics(result);
@@ -501,6 +507,7 @@ function saveTask(taskId, taskText, result) {
         model: result.model || "",
         escalated: result.escalated || false,
         cacheHit: result.cache_hit || false,
+        verificationReasoning: result.verification_feedback || "",
         time: new Date().toISOString(),
     };
 
@@ -645,6 +652,10 @@ function openTaskModal(taskId) {
         </div>
         <h4 style="margin-bottom:8px; color: var(--text-secondary); font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Task</h4>
         <p style="margin-bottom:20px; font-size:14px; line-height:1.6; color: var(--text-primary);">${escapeHtml(task.task)}</p>
+        
+        <h4 style="margin-bottom:8px; color: var(--text-secondary); font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Judge's Notes</h4>
+        <p style="margin-bottom:20px; font-size:13px; line-height:1.6; color: var(--text-secondary); font-style: italic; background: rgba(255,255,255,0.02); padding: 12px; border-radius: 8px; border-left: 3px solid var(--violet-500);">${escapeHtml(task.verificationReasoning || "No feedback provided.")}</p>
+
         <h4 style="margin-bottom:8px; color: var(--text-secondary); font-size:12px; text-transform:uppercase; letter-spacing:0.5px;">Response</h4>
         <pre>${escapeHtml(task.answer || "No answer")}</pre>
     `;
