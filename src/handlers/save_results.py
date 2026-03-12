@@ -115,6 +115,8 @@ def lambda_handler(event: dict, context: LambdaContext) -> dict:
             "predicted_complexity": broker_result.get("predicted_complexity", "unknown"),
             "worker_latency_ms": worker_result.get("latency_ms", 0),
             "verification_score": quality_score,
+            "verification_feedback": verification_result.get("feedback", ""),
+            "verification_dimensions": verification_result.get("dimensions", {}),
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "ttl": int(time.time()) + (30 * 24 * 60 * 60),  # 30 days TTL
         }
